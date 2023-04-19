@@ -6,9 +6,30 @@ from MinkowskiEngine import (MinkowskiConvolution as MEConv,
                              MinkowskiReLU as MEReLU,
                              MinkowskiMaxPooling as MEMaxPool,
                              MinkowskiAvgPooling as MEAvgPool,
+                             MinkowskiAvgPooling as MEAvgPool,
+                             MinkowskiGlobalAvgPooling as MEGlobalAvgPool,
                              MinkowskiBroadcastAddition as MEAdd,
+                             MinkowskiBroadcastAddition as MEMult,
+                             MinkowskiLinear as MELinear,
+                             MinkowskiSigmoid as MESigmoid,
                             )
 
+
+class SEBlock(nn.Module):
+  def __init__(self, f_in, r=16):
+    super().__init__()
+    self.layers = nn.Sequential(
+      MEGlobalAvgPool(),
+      MELinear(f_in, f_in // r),
+      MEReLU(),
+      MELinear(f_in // r, f_in),
+      MESigmoid(),
+    )
+
+    self.scale = MEMult()
+
+  def forward(self, x):
+    return self.scale(x, self.layers(x)) 
 
 class SubBlock(nn.Module):
   def __init__(self, f_in, f_out):
@@ -34,6 +55,7 @@ class SubBlock(nn.Module):
       MEBatchNorm(f_out),
       MEReLU(),
       MEConv(f_out, f_out, kernel_size=3, stride=initial_stride, dimension=2),
+      SEBlock(f_out),
     )
 
 
@@ -88,7 +110,7 @@ class Model(ME.MinkowskiNetwork):
     )
 
     self.global_avg_pool = ME.MinkowskiGlobalMaxPooling() 
-    self.linear = ME.MinkowskiLinear(512, 4)
+    self.linear = MELinear(512, 4)
     self.activation = ME.MinkowskiSoftmax()
 
   def forward(self, x):
