@@ -176,10 +176,10 @@ class Trainer:
         padded_preds[i,j,:len(p)] = p
     return padded_preds
 
-  def save_output(self, validate=False):
+  def save_output(self, validate=False, output_dir='.'):
     import h5py as h5 
     
-    with h5.File(f'pdsp_training_losses_{calendar.timegm(time.gmtime())}.h5', 'a') as h5out:
+    with h5.File(f'{output_dir}/pdsp_training_losses_{calendar.timegm(time.gmtime())}.h5', 'a') as h5out:
       h5out.create_dataset('losses', data=np.array(self.losses))
 
       padded_preds = self.pad_output(self.preds)
@@ -212,6 +212,7 @@ if __name__ == '__main__':
   #parser.add_argument('--filters', nargs=3, default=[128, 192, 256], type=int)
   parser.add_argument('--batch_size', type=int, default=32)
   parser.add_argument('--epochs', type=int, default=1)
+  parser.add_argument('--output_dir', type=str, default='./')
   parser.add_argument('--noweight', action='store_false')
   parser.add_argument('--weights', nargs=4, default=[], type=float)
   args = parser.parse_args()
@@ -227,7 +228,9 @@ if __name__ == '__main__':
     validate_data.load_h5(args.validatesample)
     validate_data.clean_events()
     val_loader = pdm.get_loader(pdsp_data, args)
-  else: validate_data = None
+  else:
+    #validate_data = None
+    val_loader = None
  
   #weights = (pdsp_data.get_sample_weights() if args.noweight else [])
   weights = get_weights(pdsp_data, args)
@@ -239,4 +242,4 @@ if __name__ == '__main__':
   trainer.setup_output()
   #trainer.train(pdsp_data, validate_data=validate_data, epochs=args.epochs)
   trainer.train(loader, epochs=args.epochs, validate_data=val_loader)
-  trainer.save_output((args.validatesample is not None))
+  trainer.save_output((args.validatesample is not None), output_dir=args.output_dir)
