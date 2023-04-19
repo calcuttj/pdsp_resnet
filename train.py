@@ -138,14 +138,15 @@ class Trainer:
         #loss = self.loss_fn(pred, torch.Tensor(y).argmax(1))
         loss, current = loss.item(), batch
         self.val_losses[-1].append(loss)
-        #print(pred.argmax(1).numpy(), y.argmax(1))
+        #print(pred.features.detach().numpy().argmax(1), y)
         #print((pred.argmax(1) == y.argmax(1)))
-        correct += np.sum(pred.features.detach().numpy().argmax(1) == y)
+        correct += np.sum(pred.features.detach().numpy().argmax(1) == y.numpy())
+        #print(pred.features.detach().numpy().argmax(1) == y)
         self.val_preds[-1].append(pred.features.detach().numpy().argmax(1))
         self.val_truths[-1].append(y)
         #print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
   
-    correct /= (1.*size)
+    correct /= (1.*loader.dataset.pdsp_data.nevents)
     self.val_accs.append(correct)
     print(f'Validation accuracy: {100.*correct}')
 
