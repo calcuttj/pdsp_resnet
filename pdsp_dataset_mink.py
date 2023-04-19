@@ -6,6 +6,13 @@ import torch
 import torch.nn as nn
 
 import process_hits
+from dataclasses import dataclass
+
+@dataclass
+class Config:
+  batch_size: int
+  num_workers: int = 1
+
 
 ##Only uses plane 2
 class PDSPDataset(Dataset):
