@@ -1,6 +1,7 @@
 import numpy as np
 from math import ceil, sqrt, exp, pi
 import h5py as h5
+import multiprocessing as mp
 
 class PlaneData:
   def __init__(self, wire, time, integral):
@@ -39,11 +40,97 @@ class PDSPData:
     #plane_data.wire = np.delete(plane_data.wire, to_del)
     #plane_data.integral = np.delete(plane_data.integral, to_del)
     return plane_data
+
+
+  def load_file_mp(self, h5in, procid):
+    for a, k in enumerate(self.split_keys[procid]):
+
+      events = np.array(h5in[f'{k}/events/event_id'][:])
+
+      if not a % 100: print(f'{procid}: {a}/{len(self.split_keys[procid])}') #, end='\r')
+
+      all_plane_datas = []
+      for eid in events:
+        all_plane_datas.append(self.get_plane_data(h5in, k, eid, 2))
+      #nhits = [i for i in np.array(h5in[f'{k}/events/nhits'][:])]
+      nhits = np.array(h5in[f'{k}/events/nhits'])
+      print('nhits:', nhits)
+
+
+
+      with self.lock:
+        for n in nhits: self.nhits.append(n)
+        for plane_data in all_plane_datas:
+          self.plane2_time.append(plane_data.time)
+          self.plane2_wire.append(plane_data.wire)
+          self.plane2_integral.append(plane_data.integral)
+
+  def load_h5_mp(self, filename, num_workers):
+    with h5.File(filename, 'r') as h5in:
+      self.loaded_truth = False
+
+      ##Make lock and manager
+      ##And associated lists
+      with mp.Manager() as manager:
+        self.lock = mp.Lock()
+        self.plane0_time = manager.list()
+        self.plane0_wire = manager.list()
+        self.plane0_integral = manager.list()
+
+        self.plane1_time = manager.list()
+        self.plane1_wire = manager.list()
+        self.plane1_integral = manager.list()
+
+        self.plane2_time = manager.list()
+        self.plane2_wire = manager.list()
+        self.plane2_integral = manager.list()
+
+        self.keys = [k for k in h5in.keys()]
+        self.split_keys = [
+          self.keys[i::num_workers]
+          for i in range(num_workers)
+        ]
+
+        self.nhits = manager.list() 
+
+        procs = [
+          mp.Process(target=self.load_file_mp,
+                     args=(h5in, i))
+          for i in range(num_workers)
+        ]
+
+        for p in procs:
+          p.start()
+        for p in procs:
+          p.join()
+
+        self.plane0_time = list(self.plane0_time) 
+        self.plane0_wire = list(self.plane0_wire)
+        self.plane0_integral = list(self.plane0_integral)
+
+        self.plane1_time = list(self.plane1_time) 
+        self.plane1_wire = list(self.plane1_wire)
+        self.plane1_integral = list(self.plane1_integral)
+
+        self.plane2_time = list(self.plane2_time) 
+        self.plane2_wire = list(self.plane2_wire)
+        self.plane2_integral = list(self.plane2_integral)
+
+        self.wires = [self.plane0_wire, self.plane1_wire, self.plane2_wire]
+        self.times = [self.plane0_time, self.plane1_time, self.plane2_time]
+        self.integrals = [self.plane0_integral, self.plane1_integral, self.plane2_integral]
+        self.nhits = np.array(self.nhits)
+
+        self.nevents = len(self.nhits)
+
+        print(f'Loading truth')
+        #self.load_truth(h5in)
+
+
   def load_h5(self, filename):
     with h5.File(filename, 'r') as h5in:
 
       self.loaded_truth = False
-      #self.data = dict()
       self.plane0_time = []
       self.plane0_wire = []
       self.plane0_integral = []
@@ -57,10 +144,8 @@ class PDSPData:
       self.plane2_integral = []
 
       self.keys = [k for k in h5in.keys()]
-      #self.event_keys = []
       nhits = []
 
-      self.k_nevents = dict()
 
       events = []
       for a, k in enumerate(self.keys):
@@ -190,7 +275,7 @@ class PDSPData:
         topos.append(2)
     self.topos = np.array(topos)
 
-  def load_data(self, pid, eventindex): 
+  def load_data(self, pid, eventindex):  #TODO remove
 
     data = np.zeros(self.nhits[eventindex][pid], dtype=self.tp)
 
