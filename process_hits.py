@@ -19,7 +19,7 @@ class PDSPData:
 
   def get_plane_data(self, h5in, k, eid, pid):
     ##To-Do: check maxtime and wires
-    events = np.array(h5in[f'{k}/events/event_id'][:])
+    #events = np.array(h5in[f'{k}/events/event_id'][:])
     hit_events = np.array(h5in[f'{k}/plane_{pid}_hits/event_id'][:])
     #print(hit_events)
     #print(eid)
@@ -43,27 +43,79 @@ class PDSPData:
 
 
   def load_file_mp(self, h5in, procid):
+    ### Getting truth
+    #pdg = [] 
+    #interacted = []
+    #n_neutron = []
+    #n_proton = []
+    #n_piplus = []
+    #n_piminus = []
+    #n_pi0 = []
+
     for a, k in enumerate(self.split_keys[procid]):
 
-      events = np.array(h5in[f'{k}/events/event_id'][:])
+      events = [i for i in np.array(h5in[f'{k}/events/event_id'][:])]
 
-      if not a % 100: print(f'{procid}: {a}/{len(self.split_keys[procid])}') #, end='\r')
+      if not a % 100:
+        with self.lock:
+          string = ''
+          self.split_count[procid] = a
+          for i in range(len(self.split_count)):
+            string += f'{self.split_count[i]}/{len(self.split_keys[i])} '
+          #print(f'{procid}: {a}/{len(self.split_keys[procid])}'), end='\r')
+          print(string, end='\r')
+          #print(string, end='\x1b[1K\r')
 
       all_plane_datas = []
       for eid in events:
         all_plane_datas.append(self.get_plane_data(h5in, k, eid, 2))
       #nhits = [i for i in np.array(h5in[f'{k}/events/nhits'][:])]
       nhits = np.array(h5in[f'{k}/events/nhits'])
-      print('nhits:', nhits)
+      #print('nhits:', nhits)
 
+      pdg = [i[0] for i in np.array(h5in[f'{k}/truth/pdg'])]
+      interacted = [i[0] for i in np.array(h5in[f'{k}/truth/interacted'])]
+      n_neutron = [i[0] for i in np.array(h5in[f'{k}/truth/n_neutron'])]
+      n_proton = [i[0] for i in np.array(h5in[f'{k}/truth/n_proton'])]
+      n_piplus = [i[0] for i in np.array(h5in[f'{k}/truth/n_piplus'])]
+      n_piminus = [i[0] for i in np.array(h5in[f'{k}/truth/n_piminus'])]
+      n_pi0 = [i[0] for i in np.array(h5in[f'{k}/truth/n_pi0'])]
 
+      topos = []
+      for i in range(len(pdg)):
+        if pdg[i] not in [211, -13]:
+          topos.append(-1)
+        elif not interacted[i]:
+          topos.append(3)
+        elif (n_piplus[i] == 0 and n_piminus[i] == 0 and
+              n_pi0[i] == 0):
+          topos.append(0)
+        elif (n_piplus[i] == 0 and n_piminus[i] == 0 and
+              n_pi0[i] == 1):
+          topos.append(1)
+        else:
+          topos.append(2)
+      #print(f'Added {len(sub_pdg)} truths from {k}')
 
       with self.lock:
-        for n in nhits: self.nhits.append(n)
+        #print(len(nhits), len(pdg), len(all_plane_datas), len(events))
         for plane_data in all_plane_datas:
           self.plane2_time.append(plane_data.time)
           self.plane2_wire.append(plane_data.wire)
           self.plane2_integral.append(plane_data.integral)
+        #for eid in events: self.events.append(eid)
+        #for n in nhits: self.nhits.append(n)
+        for i in range(len(pdg)):
+          self.nhits.append(nhits[i])
+          self.events.append(events[i])
+          self.pdg.append(pdg[i])
+          self.interacted.append(interacted[i])
+          self.n_neutron.append(n_neutron[i])
+          self.n_proton.append(n_proton[i])
+          self.n_piplus.append(n_piplus[i])
+          self.n_piminus.append(n_piminus[i])
+          self.n_pi0.append(n_pi0[i])
+          self.topos.append(topos[i])
 
   def load_h5_mp(self, filename, num_workers):
     with h5.File(filename, 'r') as h5in:
@@ -73,6 +125,7 @@ class PDSPData:
       ##And associated lists
       with mp.Manager() as manager:
         self.lock = mp.Lock()
+        self.events = manager.list() 
         self.plane0_time = manager.list()
         self.plane0_wire = manager.list()
         self.plane0_integral = manager.list()
@@ -85,11 +138,23 @@ class PDSPData:
         self.plane2_wire = manager.list()
         self.plane2_integral = manager.list()
 
+        self.pdg = manager.list()
+        self.interacted = manager.list()
+        self.n_proton = manager.list()
+        self.n_neutron = manager.list()
+        self.n_piplus = manager.list()
+        self.n_piminus = manager.list()
+        self.n_pi0 = manager.list()
+        self.topos = manager.list()
+
+
         self.keys = [k for k in h5in.keys()]
-        self.split_keys = [
+        self.split_keys = manager.list([
           self.keys[i::num_workers]
           for i in range(num_workers)
-        ]
+        ])
+
+        self.split_count = manager.list([0 for i in range(num_workers)])
 
         self.nhits = manager.list() 
 
@@ -122,8 +187,18 @@ class PDSPData:
         self.nhits = np.array(self.nhits)
 
         self.nevents = len(self.nhits)
+        self.events = np.array(self.events)
 
         print(f'Loading truth')
+        self.pdg = np.array(self.pdg)
+        self.interacted = np.array(self.interacted)
+        self.n_proton = np.array(self.n_proton)
+        self.n_neutron = np.array(self.n_neutron)
+        self.n_piplus = np.array(self.n_piplus)
+        self.n_piminus = np.array(self.n_piminus)
+        self.n_pi0 = np.array(self.n_pi0)
+        self.topos = np.array(self.topos)
+
         #self.load_truth(h5in)
 
 
@@ -146,15 +221,15 @@ class PDSPData:
       self.keys = [k for k in h5in.keys()]
       nhits = []
 
-
-      events = []
+      self.events = []
       for a, k in enumerate(self.keys):
         nhits += [i for i in np.array(h5in[f'{k}/events/nhits'][:])]
 
-        events = np.array(h5in[f'{k}/events/event_id'][:])
+        temp_events = [i for i in np.array(h5in[f'{k}/events/event_id'][:])]
+        self.events += temp_events
 
         if not a % 100: print(f'{a}/{len(self.keys)}', end='\r')
-        for eid in events:
+        for eid in temp_events:
           #plane_data = self.get_plane_data(h5in, k, eid, 0)
           #self.plane0_time.append(plane_data.time)
           #self.plane0_wire.append(plane_data.wire)
@@ -174,7 +249,7 @@ class PDSPData:
       self.times = [self.plane0_time, self.plane1_time, self.plane2_time]
       self.integrals = [self.plane0_integral, self.plane1_integral, self.plane2_integral]
       self.nhits = np.array(nhits)
-      self.events = np.array(events)
+      self.events = np.array(self.events)
 
       self.nevents = len(self.nhits)
 
@@ -221,7 +296,6 @@ class PDSPData:
       n_piplus = []
       n_piminus = []
       n_pi0 = []
-      self.k_ntruths = dict()
       for k in self.keys:
         if 'truth' in h5in[f'{k}'].keys():
           found_truth = True
@@ -237,7 +311,6 @@ class PDSPData:
           n_pi0 += [i for i in np.array(h5in[f'{k}/truth/n_pi0'][:])]
 
           #print(f'Added {len(sub_pdg)} truths from {k}')
-          self.k_ntruths[k] = len(sub_pdg)
 
       if found_truth:
         self.pdg = np.array(pdg)
@@ -363,6 +436,7 @@ class PDSPData:
     self.n_piplus = np.delete(self.n_piplus, indices)
     self.n_piminus = np.delete(self.n_piminus, indices)
     self.n_pi0 = np.delete(self.n_pi0, indices)
+    self.events = np.delete(self.events, indices)
 
     #self.events = np.delete(self.events, indices, axis=0)
     self.nhits = np.delete(self.nhits, indices, axis=0)
