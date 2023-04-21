@@ -23,9 +23,11 @@ class Trainer:
     self.validate=validate
     self.batch_size=batch_size
 
+    self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
   def setup_trainers(self):
     self.model = Model()
-    #if torch.cuda.is_available():
+    self.model.to(self.device)
     #  print('Found cuda. Sending to gpu', self.rank)
     #  self.model.to(rank)
     #  print(next(self.model.parameters()).device)
@@ -94,9 +96,9 @@ class Trainer:
       # Compute prediction error
       #pred = self.model(x.float().to(rank))
       #loss = self.loss_fn(pred, y.long().argmax(1).to(rank))
-      the_input = ME.SparseTensor(features, locs)
+      the_input = ME.SparseTensor(features, locs, device=self.device)
       pred = self.model(the_input)
-      loss = self.loss_fn(pred.features, y)
+      loss = self.loss_fn(pred.features, y.to(self.device))
   
       # Backpropagation
       loss.backward()
@@ -110,7 +112,7 @@ class Trainer:
       loss, current = loss.item(), batch
       print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
       #print(pred.features.detach().numpy().argmax(1), y)
-      self.preds[-1].append(pred.features.detach().numpy().argmax(1))
+      self.preds[-1].append(pred.features.cpu().detach().numpy().argmax(1))
       self.truths[-1].append(y)
       self.losses[-1].append(loss)
 
@@ -130,9 +132,9 @@ class Trainer:
         locs, features, y = data['coordinates'], data['features'], data['labels']
         # Compute prediction error
   
-        the_input = ME.SparseTensor(features, locs)
+        the_input = ME.SparseTensor(features, locs, device=self.device)
         pred = self.model(the_input)
-        loss = self.loss_fn(pred.features, y)
+        loss = self.loss_fn(pred.features, y.to(self.device))
 
         #pred = self.model([torch.LongTensor(locs), torch.FloatTensor(features)])
         #loss = self.loss_fn(pred, torch.Tensor(y).argmax(1))
@@ -140,9 +142,9 @@ class Trainer:
         self.val_losses[-1].append(loss)
         #print(pred.features.detach().numpy().argmax(1), y)
         #print((pred.argmax(1) == y.argmax(1)))
-        correct += np.sum(pred.features.detach().numpy().argmax(1) == y.numpy())
+        correct += np.sum(pred.features.cpu().detach().numpy().argmax(1) == y.numpy())
         #print(pred.features.detach().numpy().argmax(1) == y)
-        self.val_preds[-1].append(pred.features.detach().numpy().argmax(1))
+        self.val_preds[-1].append(pred.features.cpu().detach().numpy().argmax(1))
         self.val_truths[-1].append(y)
         #print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
   
@@ -216,10 +218,14 @@ if __name__ == '__main__':
   parser.add_argument('--output_dir', type=str, default='./')
   parser.add_argument('--noweight', action='store_false')
   parser.add_argument('--weights', nargs=4, default=[], type=float)
+  parser.add_argument('--nload', type=int, default=-1)
   args = parser.parse_args()
 
   pdsp_data = process_hits.PDSPData(linked=True)
-  pdsp_data.load_h5(args.trainsample)
+  if args.nload > 0:
+    pdsp_data.load_h5_mp(args.trainsample, args.nload)
+  else:
+    pdsp_data.load_h5(args.trainsample)
   pdsp_data.clean_events()
 
   loader = pdm.get_loader(pdsp_data, args)
