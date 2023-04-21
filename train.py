@@ -38,7 +38,7 @@ class Trainer:
     else:
       print('Weighting', self.weights)
       self.loss_fn = nn.CrossEntropyLoss(
-          weight=torch.tensor(self.weights).float())
+          weight=torch.tensor(self.weights).float().to(self.device))
   
     self.optimizer = torch.optim.SGD(
         self.model.parameters(), lr=1.e-3, momentum=0.9)
