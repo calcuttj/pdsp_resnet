@@ -54,7 +54,7 @@ class SubBlock(nn.Module):
       MEConv(f_in, f_out, kernel_size=3, stride=initial_stride, dimension=2),
       MEBatchNorm(f_out),
       MEReLU(),
-      MEConv(f_out, f_out, kernel_size=3, stride=initial_stride, dimension=2),
+      MEConv(f_out, f_out, kernel_size=3, stride=1, dimension=2),
       SEBlock(f_out),
     )
 
