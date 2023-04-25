@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
   trainer = train.Trainer(batch_size=args.batch_size,
                           weights=weights)
-  trainer.setup_trainers()
+  trainer.setup_trainers(model_type=1)
   trainer.setup_output()
   #trainer.train(pdsp_data, validate_data=validate_data, epochs=args.epochs)
   trainer.train(loader, epochs=args.epochs, validate_data=val_loader)

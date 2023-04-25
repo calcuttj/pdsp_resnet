@@ -3,8 +3,7 @@ import process_hits
 import MinkowskiEngine as ME
 
 import time, calendar
-#from resnet_model import Model
-from resnet_mink import Model
+#from resnet_mink import Model
 import pdsp_dataset_mink as pdm
 
 import torch
@@ -12,6 +11,7 @@ from torch import nn
 
 import numpy as np
 from argparse import ArgumentParser as ap
+
 
 
 class Trainer:
@@ -25,8 +25,14 @@ class Trainer:
 
     self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-  def setup_trainers(self):
-    self.model = Model()
+  def setup_trainers(self, model_type=0):
+    if model_type == 0:
+      import resnet_mink
+      self.model = resnet_mink.Model()
+    else:
+      import uresnet_mink
+      self.model = uresnet_mink.Model()
+
     self.model.to(self.device)
     #  print('Found cuda. Sending to gpu', self.rank)
     #  self.model.to(rank)
@@ -98,6 +104,7 @@ class Trainer:
       #loss = self.loss_fn(pred, y.long().argmax(1).to(rank))
       the_input = ME.SparseTensor(features, locs, device=self.device)
       pred = self.model(the_input)
+      #print(pred.shape, y.shape)
       loss = self.loss_fn(pred.features, y.to(self.device))
   
       # Backpropagation
