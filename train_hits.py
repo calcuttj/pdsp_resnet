@@ -43,4 +43,6 @@ if __name__ == '__main__':
   trainer.setup_output()
   #trainer.train(pdsp_data, validate_data=validate_data, epochs=args.epochs)
   trainer.train(loader, epochs=args.epochs, validate_data=val_loader)
-  #trainer.save_output((args.validatesample is not None), output_dir=args.output_dir)
+  trainer.save_output((args.validatesample is not None),
+                      output_dir=args.output_dir,
+                      save_pred_truths=False)

@@ -186,25 +186,27 @@ class Trainer:
         padded_preds[i,j,:len(p)] = p
     return padded_preds
 
-  def save_output(self, validate=False, output_dir='.'):
+  def save_output(self, validate=False, output_dir='.', save_pred_truths=True):
     import h5py as h5 
     
     with h5.File(f'{output_dir}/pdsp_training_losses_{calendar.timegm(time.gmtime())}.h5', 'a') as h5out:
       h5out.create_dataset('losses', data=np.array(self.losses))
 
-      padded_preds = self.pad_output(self.preds)
-      padded_truths = self.pad_output(self.truths)
-      h5out.create_dataset('preds', data=np.array(padded_preds))
-      h5out.create_dataset('truths', data=np.array(padded_truths))
+      if save_pred_truths:
+        padded_preds = self.pad_output(self.preds)
+        padded_truths = self.pad_output(self.truths)
+        h5out.create_dataset('preds', data=np.array(padded_preds))
+        h5out.create_dataset('truths', data=np.array(padded_truths))
       #h5out.create_dataset('lrs', data=np.array(lrs))
       if validate:
-        padded_val_preds = self.pad_output(self.val_preds)
-        padded_val_truths = self.pad_output(self.val_truths)
+        if save_pred_truths:
+          padded_val_preds = self.pad_output(self.val_preds)
+          padded_val_truths = self.pad_output(self.val_truths)
+          h5out.create_dataset('val_preds', data=np.array(padded_val_preds))
+          h5out.create_dataset('val_truths', data=np.array(padded_val_truths))
         h5out.create_dataset('val_losses', data=np.array(self.val_losses))
         h5out.create_dataset('accuracies', data=np.array(self.val_accs))
 
-        h5out.create_dataset('val_preds', data=np.array(padded_val_preds))
-        h5out.create_dataset('val_truths', data=np.array(padded_val_truths))
 
 def get_weights(pdsp_data, args):
   if not args.noweight:
