@@ -11,9 +11,10 @@ class PlaneData:
     self.origin = origin
 
 class PDSPData:
-  def __init__(self, maxtime=913, maxwires=[800, 800, 480]):
+  def __init__(self, maxtime=913, maxwires=[800, 800, 480], nfeatures=3):
     self.maxtime=maxtime
     self.maxwires=maxwires
+    self.nfeatures=nfeatures
 
   def find_duplicates(self, coords):
     u, counts = np.unique(coords, return_counts=True, axis=0)
@@ -39,8 +40,11 @@ class PDSPData:
     #print(np.array(h5in[f'{k}/plane_{pid}_hits']['wire'])[indices].flatten().astype(int))
 
     temp_origin = np.array(h5in[f'{k}/plane_{pid}_hits']['origin'])[indices].flatten()
-    origins = np.zeros((*temp_origin.shape, 3))
-    origins[np.where(temp_origin < 0), 2] = 1.
+    origins = np.zeros((*temp_origin.shape, self.nfeatures))
+
+    if self.nfeatures == 3:
+      origins[np.where(temp_origin < 0), 2] = 1.
+
     origins[np.where(temp_origin >= 0), 0] = 1. - temp_origin[np.where(temp_origin >= 0)]
     origins[np.where(temp_origin >= 0), 1] = temp_origin[np.where(temp_origin >= 0)]
 
@@ -50,9 +54,21 @@ class PDSPData:
                np.array(h5in[f'{k}/plane_{pid}_hits']['integral'])[indices].flatten(),
                origins 
            )
+
+    if self.nfeatures < 3:
+      to_del = np.where(np.sum(origins, axis=1) == 0.)
+      #print(to_del)
+      #print(plane_data.origin[to_del])
+      if len(to_del) > 0:
+        plane_data.time = np.delete(plane_data.time, to_del)
+        plane_data.wire = np.delete(plane_data.wire, to_del)
+        plane_data.integral = np.delete(plane_data.integral, to_del)
+        plane_data.origin = np.delete(plane_data.origin, to_del, axis=0)
+
     coords = np.zeros((len(plane_data.wire), 2))
     coords[:, 0] = plane_data.wire
     coords[:, 1] = plane_data.time
+
     duplicate_indices = self.find_duplicates(coords)
     #print(self.duplicate_indices)
 
@@ -320,9 +336,24 @@ class PDSPData:
     return ceil(self.nevents/batchsize)
 
   def get_sample_weights(self, pid=2):
-    total_nhits = len([origins for origins in self.origins[pid]])
-    total_origins = np.sum(np.array([np.sum(origins, axis=0) for origins in self.origins[pid]]), axis=0)
-    return total_nhits/total_origins
+
+    cosmic = 0
+    beam = 0
+    noise = 0
+    nhits = 0
+    for i in range(len(self.origins[2])):
+      cosmic += np.sum(self.origins[2][i].argmax(1) == 0)
+      beam += np.sum(self.origins[2][i].argmax(1) == 1)
+      nhits += len(self.origins[2][i])
+      noise += np.sum(self.origins[2][i].argmax(1) == 2)
+
+    #total_nhits = len([origins for origins in self.origins[pid]])
+    #total_origins = np.sum(np.array([np.sum(origins, axis=0) for origins in self.origins[pid]]), axis=0)
+
+    origins = [cosmic, beam]
+    if self.nfeatures == 3:
+      origins.append(noise)
+    return nhits/np.array(origins)
 
   def get_training_batches(self, batchsize=2, maxbatches=-1, startbatch=0):
 

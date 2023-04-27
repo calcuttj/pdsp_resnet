@@ -59,7 +59,7 @@ class SubBlock(nn.Module):
    
 
 class Model(ME.MinkowskiNetwork):
-  def __init__(self, nfinal=3):
+  def __init__(self, nfinal=2):
     super().__init__(D=2)
 
     #initial
