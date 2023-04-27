@@ -10,7 +10,7 @@ class PlaneData:
     self.integral = integral
 
 class PDSPData:
-  def __init__(self, maxtime=913, linked=False, maxwires=[800, 800, 480]):
+  def __init__(self, maxtime=913, linked=True, maxwires=[800, 800, 480]):
     self.maxtime=maxtime
     self.maxwires=maxwires
     self.linked = linked
