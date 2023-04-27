@@ -46,6 +46,10 @@ def minkowski_collate_fn(list_data):
         "labels": labels_batch,
     }
 
+def get_dataset(pdsp_data):
+  dataset = PDSPDataset(pdsp_data)
+  return dataset
+
 def get_loader(pdsp_data, config):
   dataset = PDSPDataset(pdsp_data)
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 class Config:
   batch_size: int
   num_workers: int = 1
+  use_dpp: bool = False
 
 
 ##Only uses plane 2
@@ -46,6 +47,10 @@ def minkowski_collate_fn(list_data):
         "labels": labels_batch,
     }
 
+def get_dataset(pdsp_data):
+  dataset = PDSPDataset(pdsp_data)
+  return dataset
+
 def get_loader(pdsp_data, config):
   dataset = PDSPDataset(pdsp_data)
 
@@ -54,4 +59,8 @@ def get_loader(pdsp_data, config):
     num_workers=1, ##config.num_workers
     collate_fn=minkowski_collate_fn,
     batch_size=config.batch_size,
+    sampler=None,
+    #sampler=(DistributedSampler(dataset)
+    #         if (torch.cuda.is_available() and config.use_ddp)
+    #         else None)
   )
