@@ -1,4 +1,5 @@
 import process_hits
+from datetime import datetime
 
 import MinkowskiEngine as ME
 
@@ -12,20 +13,33 @@ from torch import nn
 import numpy as np
 from argparse import ArgumentParser as ap
 
+def get_ms_delta(p1, p2):
+  diff = p2 - p1
+  return 1000*diff.seconds + diff.microseconds/1000
 
 
 class Trainer:
-  def __init__(self, rank=0, weights=[], schedule=False, load=None, validate=False, batch_size=2):
+  def __init__(self,
+               rank=0,
+               weights=[],
+               schedule=False,
+               load=None,
+               validate=False,
+               batch_size=2,
+               flatten_out=False):
     self.rank=rank
     self.weights=weights
     self.schedule=schedule
     self.load=load
     self.validate=validate
     self.batch_size=batch_size
+    self.flatten_out=flatten_out
+    self.stored_truths=False
+    self.stored_val_truths=False
 
     self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-  def setup_trainers(self, model_type=0):
+  def setup_trainers(self, model_type=0, lr=1.e-3):
     if model_type == 0:
       import resnet_mink
       self.model = resnet_mink.Model()
@@ -47,7 +61,7 @@ class Trainer:
           weight=torch.tensor(self.weights).float().to(self.device))
   
     self.optimizer = torch.optim.SGD(
-        self.model.parameters(), lr=1.e-3, momentum=0.9)
+        self.model.parameters(), lr=lr, momentum=0.9)
   
     '''
     scheduler = (
@@ -82,6 +96,7 @@ class Trainer:
     
   def train_loop(self, loader, max_iter=-1):
     self.model.train()
+    #torch.cuda.empty_cache()
     #device = get_device()
   
     #size = loader.nevents
@@ -89,40 +104,83 @@ class Trainer:
   
     self.losses.append([])
     self.preds.append([])
-    self.truths.append([])
+    if not self.flatten_out: self.truths.append([])
     #for batch, (locs, features, y) in enumerate(loader):
+    end = datetime.now()
     for batch, data in enumerate(loader):
         #loader.get_training_batches(batch_size=self.batch_size)):
+      begin = datetime.now()
+      print('iterate:', begin - end)
       if max_iter > 0 and batch >= max_iter: break
       locs, features, y = data['coordinates'], data['features'], data['labels']
+      print('loading data', datetime.now() - begin)
   
       #Zero out gradients
+      p1 = datetime.now()
       self.optimizer.zero_grad()
+      p2 = datetime.now()
+      delta_grad = get_ms_delta(p1, p2)
   
       # Compute prediction error
       #pred = self.model(x.float().to(rank))
       #loss = self.loss_fn(pred, y.long().argmax(1).to(rank))
+      p1 = datetime.now()
       the_input = ME.SparseTensor(features, locs, device=self.device)
+      p2 = datetime.now()
+      delta_input = get_ms_delta(p1, p2)
+
+
+      start = datetime.now()
       pred = self.model(the_input)
+      end1 = datetime.now()
       #print(pred.shape, y.shape)
       loss = self.loss_fn(pred.features, y.to(self.device))
+      end2 = datetime.now()
+
+      delta1 = get_ms_delta(start, end1)
+      delta2 = get_ms_delta(end1, end2)
   
       # Backpropagation
+      p1 = datetime.now()
       loss.backward()
+      p2 = datetime.now()
       self.optimizer.step()
+      p3 = datetime.now()
+
+      delta_backward = get_ms_delta(p1, p2)
+      delta_step = get_ms_delta(p2, p3)
   
       # Adjusting learning rate if available
       #if scheduler:
       #  lrs_list[-1].append(scheduler.get_last_lr())
       #  scheduler.step()
   
-      loss, current = loss.item(), batch
-      print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
+      p1 = datetime.now()
+      loss = loss.item()
+      p2 = datetime.now()
+      delta_loss_check = get_ms_delta(p1, p2)
+      print(f"loss: {loss:>7f}  [{batch:>5d}/{size}] Time: [pred:{delta1}, loss:{delta2}]")
       #print(pred.features.detach().numpy().argmax(1), y)
-      self.preds[-1].append(pred.features.cpu().detach().numpy().argmax(1))
-      self.truths[-1].append(y)
-      self.losses[-1].append(loss)
 
+
+      p1 = datetime.now()
+      if self.flatten_out:
+        self.preds[-1] += [i for i in pred.features.cpu().detach().numpy().argmax(1)]
+        if not self.stored_truths:
+          self.truths += [i for i in y.numpy().argmax(1)]
+      else:
+        self.preds[-1].append(pred.features.cpu().detach().numpy().argmax(1))
+        if not self.stored_truths:
+          self.truths[-1].append(y)
+      self.losses[-1].append(loss)
+      if batch % 10 == 0: torch.cuda.empty_cache()
+      p2 = datetime.now()
+      delta_save = get_ms_delta(p1, p2)
+      print(f"\tzerograd: {delta_grad} backprop: {delta_backward} step: {delta_step} save: {delta_save}")
+      print(f"\tloss_check: {delta_loss_check} input: {delta_input}")
+      end = datetime.now()
+    self.stored_truths = True
+    
   def validate_loop(self, loader, max_iter=-1):
 
     self.model.eval()
@@ -130,7 +188,7 @@ class Trainer:
     size = len(loader) 
     self.val_losses.append([])
     self.val_preds.append([])
-    self.val_truths.append([])
+    if not self.flatten_out: self.val_truths.append([])
     correct = 0
     
     with torch.no_grad():
@@ -151,13 +209,22 @@ class Trainer:
         #print((pred.argmax(1) == y.argmax(1)))
         correct += np.sum(pred.features.cpu().detach().numpy().argmax(1) == y.numpy())
         #print(pred.features.detach().numpy().argmax(1) == y)
-        self.val_preds[-1].append(pred.features.cpu().detach().numpy().argmax(1))
-        self.val_truths[-1].append(y)
+
+        if self.flatten_out:
+          self.val_preds[-1] += [i for i in pred.features.cpu().detach().numpy().argmax(1)]
+          if not self.stored_val_truths:
+            self.val_truths += [i for i in y.numpy().argmax(1)]
+        else:
+          self.val_preds[-1].append(pred.features.cpu().detach().numpy().argmax(1))
+          self.val_truths[-1].append(y)
         #print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
+        if batch % 10 == 0: torch.cuda.empty_cache()
+ 
   
     correct /= (1.*loader.dataset.pdsp_data.nevents)
     self.val_accs.append(correct)
     print(f'Validation accuracy: {100.*correct}')
+    self.stored_val_truths = True
 
   def train(self, train_data, validate_data=None, epochs=1):
     for e in range(epochs):
@@ -186,20 +253,25 @@ class Trainer:
         padded_preds[i,j,:len(p)] = p
     return padded_preds
 
-  def save_output(self, validate=False, output_dir='.', save_pred_truths=True):
+  def save_output(self, validate=False, output_dir='.', pad_pred_truths=True):
     import h5py as h5 
     
     with h5.File(f'{output_dir}/pdsp_training_losses_{calendar.timegm(time.gmtime())}.h5', 'a') as h5out:
       h5out.create_dataset('losses', data=np.array(self.losses))
 
-      if save_pred_truths:
+      if pad_pred_truths:
         padded_preds = self.pad_output(self.preds)
         padded_truths = self.pad_output(self.truths)
-        h5out.create_dataset('preds', data=np.array(padded_preds))
-        h5out.create_dataset('truths', data=np.array(padded_truths))
+      #print(type(self.preds[0][0]))
+      #print(type(self.truths[0][0]))
+      #print(np.array(self.preds).shape, np.array(self.truths).shape)
+      h5out.create_dataset('preds',
+                           data=np.array(padded_preds if pad_pred_truths else self.preds))
+      h5out.create_dataset('truths',
+                           data=np.array(padded_truths if pad_pred_truths else self.truths))
       #h5out.create_dataset('lrs', data=np.array(lrs))
       if validate:
-        if save_pred_truths:
+        if pad_pred_truths:
           padded_val_preds = self.pad_output(self.val_preds)
           padded_val_truths = self.pad_output(self.val_truths)
           h5out.create_dataset('val_preds', data=np.array(padded_val_preds))

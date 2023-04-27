@@ -21,14 +21,15 @@ if __name__ == '__main__':
   args = parser.parse_args()
 
   import process_all_hits
-  pdsp_data = process_all_hits.PDSPData()
+  pdsp_data = process_all_hits.PDSPData(nfeatures=2)
   pdsp_data.load_h5_mp(args.trainsample, args.nload)
 
   loader = pdm.get_loader(pdsp_data, args)
 
   if args.validatesample:
-    validate_data = process_all_hits.PDSPData()
-    val_loader = pdm.get_loader(pdsp_data, args)
+    validate_data = process_all_hits.PDSPData(nfeatures=2)
+    validate_data.load_h5_mp(args.validatesample, args.nload)
+    val_loader = pdm.get_loader(validate_data, args)
   else:
     #validate_data = None
     val_loader = None
@@ -38,11 +39,12 @@ if __name__ == '__main__':
   print(weights)
 
   trainer = train.Trainer(batch_size=args.batch_size,
-                          weights=weights)
-  trainer.setup_trainers(model_type=1)
+                          weights=weights,
+                          flatten_out=True)
+  trainer.setup_trainers(model_type=1, lr=1.e-2)
   trainer.setup_output()
   #trainer.train(pdsp_data, validate_data=validate_data, epochs=args.epochs)
   trainer.train(loader, epochs=args.epochs, validate_data=val_loader)
   trainer.save_output((args.validatesample is not None),
                       output_dir=args.output_dir,
-                      save_pred_truths=False)
+                      pad_pred_truths=False)
