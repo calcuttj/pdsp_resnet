@@ -3,6 +3,7 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 from MinkowskiEngine import (MinkowskiConvolution as MEConv,
                              MinkowskiBatchNorm as MEBatchNorm,
+                             MinkowskiDropout as MEDropout,
                              MinkowskiReLU as MEReLU,
                              MinkowskiMaxPooling as MEMaxPool,
                              MinkowskiAvgPooling as MEAvgPool,
@@ -15,14 +16,16 @@ from MinkowskiEngine import (MinkowskiConvolution as MEConv,
 
 
 class SEBlock(nn.Module):
-  def __init__(self, f_in, r=16):
+  def __init__(self, f_in, r=16, dropout=False):
     super().__init__()
     self.layers = nn.Sequential(
       MEGlobalAvgPool(),
       MELinear(f_in, f_in // r),
       MEReLU(),
+      (MEDropout(p=.2) if dropout else nn.Identity()),
       MELinear(f_in // r, f_in),
       MESigmoid(),
+      (MEDropout(p=.2) if dropout else nn.Identity()),
     )
 
     self.scale = MEMult()
@@ -31,10 +34,11 @@ class SEBlock(nn.Module):
     return self.scale(x, self.layers(x)) 
 
 class SubBlock(nn.Module):
-  def __init__(self, f_in, f_out):
+  def __init__(self, f_in, f_out, dropout=False):
     super().__init__()
     self.f_in=f_in
     self.f_out=f_out
+    self.dropout=dropout
     #self.k=k ##Need?
 
     self.residual = (
@@ -49,12 +53,14 @@ class SubBlock(nn.Module):
 
     self.layers = nn.Sequential(
       self.first_batch,
+      (MEDropout(p=.2) if self.dropout else nn.Identity()),
       self.first_relu,
       MEConv(f_in, f_out, kernel_size=3, stride=initial_stride, dimension=2),
       MEBatchNorm(f_out),
+      (MEDropout(p=.2) if self.dropout else nn.Identity()),
       MEReLU(),
       MEConv(f_out, f_out, kernel_size=3, stride=1, dimension=2),
-      SEBlock(f_out),
+      SEBlock(f_out, dropout=True),
     )
 
 
@@ -72,6 +78,7 @@ class SubBlock(nn.Module):
 class Model(ME.MinkowskiNetwork):
   def __init__(
       self,
+      dropout=False,
   ):
     super().__init__(D=2)
 
@@ -81,31 +88,31 @@ class Model(ME.MinkowskiNetwork):
     )
 
     self.stage2 = nn.Sequential(
-      SubBlock(64, 64),
-      SubBlock(64, 64),
-      SubBlock(64, 64),
+      SubBlock(64, 64, dropout=dropout),
+      SubBlock(64, 64, dropout=dropout),
+      SubBlock(64, 64, dropout=dropout),
     )
 
     self.stage3 = nn.Sequential(
-      SubBlock(64, 128),
-      SubBlock(128, 128),
-      SubBlock(128, 128),
-      SubBlock(128, 128),
+      SubBlock(64, 128, dropout=dropout),
+      SubBlock(128, 128, dropout=dropout),
+      SubBlock(128, 128, dropout=dropout),
+      SubBlock(128, 128, dropout=dropout),
     )
 
     self.stage4 = nn.Sequential(
-      SubBlock(128, 256),
-      SubBlock(256, 256),
-      SubBlock(256, 256),
-      SubBlock(256, 256),
-      SubBlock(256, 256),
-      SubBlock(256, 256),
+      SubBlock(128, 256, dropout=dropout),
+      SubBlock(256, 256, dropout=dropout),
+      SubBlock(256, 256, dropout=dropout),
+      SubBlock(256, 256, dropout=dropout),
+      SubBlock(256, 256, dropout=dropout),
+      SubBlock(256, 256, dropout=dropout),
     )
 
     self.stage5 = nn.Sequential(
-      SubBlock(256, 512),
-      SubBlock(512, 512),
-      SubBlock(512, 512),
+      SubBlock(256, 512, dropout=dropout),
+      SubBlock(512, 512, dropout=dropout),
+      SubBlock(512, 512, dropout=dropout),
     )
 
     self.global_avg_pool = ME.MinkowskiGlobalMaxPooling() 

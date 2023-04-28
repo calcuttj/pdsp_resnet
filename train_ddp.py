@@ -36,7 +36,8 @@ class Trainer:
                load=None,
                validate=False,
                batch_size=2,
-               flatten_out=False):
+               flatten_out=False,
+               noddp=False):
     self.rank=rank
     self.weights=weights
     self.schedule=schedule
@@ -46,13 +47,14 @@ class Trainer:
     self.flatten_out=flatten_out
     self.stored_truths=False
     self.stored_val_truths=False
+    self.noddp=noddp
 
     self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
   def setup_trainers(self, model_type=0, lr=1.e-3):
     if model_type == 0:
       import resnet_mink
-      model = resnet_mink.Model()
+      model = resnet_mink.Model(dropout=True)
     else:
       import uresnet_mink
       model = uresnet_mink.Model()
@@ -74,7 +76,7 @@ class Trainer:
   
     self.optimizer = torch.optim.SGD(
         model.parameters(), lr=lr, momentum=0.9)
-    self.model = DDP(model, device_ids=[self.rank])
+    self.model = model if self.noddp else DDP(model, device_ids=[self.rank])
   
     '''
     scheduler = (
@@ -129,7 +131,7 @@ class Trainer:
       # Compute prediction error
       #pred = self.model(x.float().to(rank))
       #loss = self.loss_fn(pred, y.long().argmax(1).to(rank))
-      the_input = ME.SparseTensor(features, locs, device=self.rank)
+      the_input = ME.SparseTensor(features, locs, device=self.rank) ##TODO -- noddp need this?
       pred = self.model(the_input)
       #print(pred.shape, y.shape)
       loss = self.loss_fn(pred.features, y.to(self.rank))
@@ -175,7 +177,10 @@ class Trainer:
 
         the_input = ME.SparseTensor(features, locs, device=self.rank)
         #print(the_input.device)
-        pred = self.model.module(the_input)
+        if self.noddp:
+          pred = self.model(the_input)
+        else:
+          pred = self.model.module(the_input)
         loss = self.loss_fn(pred.features, y.to(self.rank))
 
         #pred = self.model([torch.LongTensor(locs), torch.FloatTensor(features)])
@@ -205,6 +210,13 @@ class Trainer:
     print(f'Validation accuracy: {100.*correct}')
     self.stored_val_truths = True
 
+  def barrier(self):
+    if self.noddp: return
+
+    print(f'GPU {self.rank} hit barrier')
+    barrier()
+    print(f'GPU {self.rank} passed barrier')
+
   def train(self, train_data, validate_data=None, epochs=1):
     for e in range(epochs):
       print('Start epoch', e)
@@ -218,9 +230,7 @@ class Trainer:
         print('Validating')
         self.validate_loop(validate_data)
 
-      print(f'GPU {self.rank} hit barrier')
-      barrier()
-      print(f'GPU {self.rank} passed barrier')
+      self.barrier()
 
       #if scheduler:
       #  scheduler.step()
@@ -285,7 +295,7 @@ def train(rank: int,
           ):
 
 
-  ddp_setup(rank, world_size)
+  if not args.noddp: ddp_setup(rank, world_size)
 
 
   if args.type == 0:
@@ -299,7 +309,7 @@ def train(rank: int,
       shuffle=False,
       num_workers=0,
       collate_fn=pdm.minkowski_collate_fn,
-      sampler=DistributedSampler(train_dataset),
+      sampler=(None if args.noddp else DistributedSampler(train_dataset)),
   )
   if val_dataset is None:
     val_loader = None
@@ -316,6 +326,7 @@ def train(rank: int,
       batch_size=args.batch_size,
       weights=weights,
       flatten_out=True,
+      noddp=args.noddp,
   )
 
   trainer.setup_trainers(model_type=args.type, lr=args.lr)
@@ -325,7 +336,7 @@ def train(rank: int,
     trainer.save_output((args.validatesample is not None),
                         output_dir=args.output_dir,
                         pad_pred_truths=False)
-  destroy_process_group()
+  if not args.noddp: destroy_process_group()
 
 if __name__ == '__main__':
   torch.multiprocessing.set_sharing_strategy('file_system') 
@@ -344,6 +355,7 @@ if __name__ == '__main__':
                       help=('Model/data type:\n'
                             '0 (Default) -- Event Classification\n'
                             '1 -- Beam/Cosmic Hits'))
+  parser.add_argument('--noddp', action='store_true')
   args = parser.parse_args()
 
   if args.type == 0:
@@ -376,13 +388,16 @@ if __name__ == '__main__':
   weights = get_weights(pdsp_data, args)
   print(weights)
 
-  world_size = torch.cuda.device_count() if torch.cuda.is_available else 1
-  mp.spawn(train,
-    args=(
-      args,
-      weights,
-      world_size,
-      pdsp_dataset,
-      val_dataset,
-    ), nprocs=world_size
-  )
+  if not args.noddp:
+    world_size = torch.cuda.device_count() if torch.cuda.is_available else 1
+    mp.spawn(train,
+      args=(
+        args,
+        weights,
+        world_size,
+        pdsp_dataset,
+        val_dataset,
+      ), nprocs=world_size
+    )
+  else:
+   train(0, args, weights, 1, pdsp_dataset, val_dataset) 
