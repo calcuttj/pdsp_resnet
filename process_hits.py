@@ -68,7 +68,8 @@ class PDSPData:
 
       all_plane_datas = []
       for eid in events:
-        all_plane_datas.append(self.get_plane_data(h5in, k, eid, 2))
+        all_plane_datas.append(
+          [self.get_plane_data(h5in, k, eid, i) for i in range(3)])
       #nhits = [i for i in np.array(h5in[f'{k}/events/nhits'][:])]
       nhits = np.array(h5in[f'{k}/events/nhits'])
       #print('nhits:', nhits)
@@ -100,9 +101,17 @@ class PDSPData:
       with self.lock:
         #print(len(nhits), len(pdg), len(all_plane_datas), len(events))
         for plane_data in all_plane_datas:
-          self.plane2_time.append(plane_data.time)
-          self.plane2_wire.append(plane_data.wire)
-          self.plane2_integral.append(plane_data.integral)
+          self.plane2_time.append(plane_data[2].time)
+          self.plane2_wire.append(plane_data[2].wire)
+          self.plane2_integral.append(plane_data[2].integral)
+
+          self.plane1_time.append(plane_data[1].time)
+          self.plane1_wire.append(plane_data[1].wire)
+          self.plane1_integral.append(plane_data[1].integral)
+
+          self.plane0_time.append(plane_data[0].time)
+          self.plane0_wire.append(plane_data[0].wire)
+          self.plane0_integral.append(plane_data[0].integral)
         #for eid in events: self.events.append(eid)
         #for n in nhits: self.nhits.append(n)
         for i in range(len(pdg)):

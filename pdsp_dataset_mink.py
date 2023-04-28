@@ -71,12 +71,14 @@ class PDSPDatasetAllPlanes(Dataset):
   def __getitem__(self, i: int) -> dict:
 
     label = self.pdsp_data.topos[i]
-    data['label'] = torch.LongTensor([label])
+    data = {
+     'label' :torch.LongTensor([label])
+    }
 
-    for i in range(3):
-      locs, features = self.pdsp_data.get_plane(i, 2)
-      data[f'coordinates_{i}'] = torch.from_numpy(locs).to(torch.long)
-      data[f'features_{i}'] = torch.from_numpy(features).to(torch.float32)
+    for j in range(3):
+      locs, features = self.pdsp_data.get_plane(i, j)
+      data[f'coordinates_{j}'] = torch.from_numpy(locs).to(torch.long)
+      data[f'features_{j}'] = torch.from_numpy(features).to(torch.float32)
     return data
 
 def minkowski_collate_fn_all_planes(list_data):
