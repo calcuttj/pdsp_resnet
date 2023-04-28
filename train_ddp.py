@@ -37,7 +37,9 @@ class Trainer:
                validate=False,
                batch_size=2,
                flatten_out=False,
-               noddp=False):
+               noddp=False,
+               model_type=0, 
+              ):
     self.rank=rank
     self.weights=weights
     self.schedule=schedule
@@ -48,13 +50,17 @@ class Trainer:
     self.stored_truths=False
     self.stored_val_truths=False
     self.noddp=noddp
+    self.model_type=model_type
 
     self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-  def setup_trainers(self, model_type=0, lr=1.e-3):
-    if model_type == 0:
+  def setup_trainers(self, lr=1.e-3):
+    if self.model_type == 0:
       import resnet_mink
       model = resnet_mink.Model(dropout=True)
+    elif self.model_type == 1:
+      import resnet_mink_allplanes
+      model = resnet_mink_allplanes.Model(dropout=True)
     else:
       import uresnet_mink
       model = uresnet_mink.Model()
@@ -78,13 +84,13 @@ class Trainer:
         model.parameters(), lr=lr, momentum=0.9)
     self.model = model if self.noddp else DDP(model, device_ids=[self.rank])
   
-    '''
-    scheduler = (
-      torch.optim.lr_scheduler.CyclicLR(optimizer,
+    self.scheduler = (
+      torch.optim.lr_scheduler.CyclicLR(self.optimizer,
                                         base_lr=0.001,
-                                        max_lr=0.01) if schedule
+                                        max_lr=0.01) if self.schedule
       else None)
-    '''
+    if self.schedule: print('Schedule?', self.schedule, self.scheduler)
+
   
     '''
     if load:
@@ -111,6 +117,24 @@ class Trainer:
     self.val_nhits = []
     self.val_accs = []
     
+  def unpack_data(self, data):
+    if self.model_type != 1: 
+      locs, features = data['coordinates'], data['features']
+      return ME.SparseTensor(features, locs, device=self.rank)
+    else:
+      locs0, features0 = data['coordinates_0'], data['features_0']
+      input0 = ME.SparseTensor(features0, locs0, device=self.rank)
+
+      locs1, features1 = data['coordinates_1'], data['features_1']
+      input1 = ME.SparseTensor(features1, locs1, device=self.rank)
+
+      locs2, features2 = data['coordinates_2'], data['features_2']
+      input2 = ME.SparseTensor(features2, locs2, device=self.rank)
+
+      return (input0, input1, input2)
+      
+      
+
   def train_loop(self, loader, max_iter=-1):
     self.model.train()
   
@@ -123,7 +147,9 @@ class Trainer:
 
     for batch, data in enumerate(loader):
       if max_iter > 0 and batch >= max_iter: break
-      locs, features, y = data['coordinates'], data['features'], data['labels']
+      y = data['labels']
+
+      the_input = self.unpack_data(data)
   
       #Zero out gradients
       self.optimizer.zero_grad()
@@ -131,29 +157,32 @@ class Trainer:
       # Compute prediction error
       #pred = self.model(x.float().to(rank))
       #loss = self.loss_fn(pred, y.long().argmax(1).to(rank))
-      the_input = ME.SparseTensor(features, locs, device=self.rank) ##TODO -- noddp need this?
+      #the_input = ME.SparseTensor(features, locs, device=self.rank) ##TODO -- noddp need this?
       pred = self.model(the_input)
       #print(pred.shape, y.shape)
-      loss = self.loss_fn(pred.features, y.to(self.rank))
+      features = pred if self.model_type == 1 else pred.features
+      loss = self.loss_fn(features, y.to(self.rank))
   
       # Backpropagation
       loss.backward()
       self.optimizer.step()
   
-      # Adjusting learning rate if available
-      #if scheduler:
-      #  lrs_list[-1].append(scheduler.get_last_lr())
-      #  scheduler.step()
+      #Adjusting learning rate if available
+      if self.scheduler:
+        #lrs_list[-1].append(scheduler.get_last_lr())
+        self.scheduler.step()
   
       loss, current = loss.item(), batch
       print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
       #print(pred.features.detach().numpy().argmax(1), y)
       if self.flatten_out:
-        self.preds[-1] += [i for i in pred.features.cpu().detach().numpy()]
+        #self.preds[-1] += [i for i in pred.features.cpu().detach().numpy()]
+        self.preds[-1] += [i for i in features.cpu().detach().numpy()]
         if not self.stored_truths:
           self.truths += [i for i in y.numpy()]
       else:
-        self.preds[-1].append(pred.features.cpu().detach().numpy())
+        #self.preds[-1].append(pred.features.cpu().detach().numpy())
+        self.preds[-1].append(features.cpu().detach().numpy())
         if not self.stored_truths:
           self.truths[-1].append(y)
       self.losses[-1].append(loss)
@@ -172,16 +201,20 @@ class Trainer:
     with torch.no_grad():
       for batch, data in enumerate(loader):
         if max_iter > 0 and batch >= max_iter: break
-        locs, features, y = data['coordinates'], data['features'], data['labels']
+        #locs, features, y = data['coordinates'], data['features'], data['labels']
+        y = data['labels']
         # Compute prediction error
 
-        the_input = ME.SparseTensor(features, locs, device=self.rank)
+        the_input = self.unpack_data(data)
+        #the_input = ME.SparseTensor(features, locs, device=self.rank)
         #print(the_input.device)
         if self.noddp:
           pred = self.model(the_input)
         else:
           pred = self.model.module(the_input)
-        loss = self.loss_fn(pred.features, y.to(self.rank))
+
+        features = pred if self.model_type == 1 else pred.features
+        loss = self.loss_fn(features, y.to(self.rank))
 
         #pred = self.model([torch.LongTensor(locs), torch.FloatTensor(features)])
         #loss = self.loss_fn(pred, torch.Tensor(y).argmax(1))
@@ -189,20 +222,21 @@ class Trainer:
         self.val_losses[-1].append(loss)
         #print(pred.features.detach().numpy().argmax(1), y)
         #print((pred.argmax(1) == y.argmax(1)))
-        correct += np.sum(pred.features.cpu().detach().numpy().argmax(1) == y.numpy())
+        correct += np.sum(features.cpu().detach().numpy().argmax(1) == y.numpy())
         #print(pred.features.detach().numpy().argmax(1) == y)
 
         if self.flatten_out:
-          self.val_preds[-1] += [i for i in pred.features.cpu().detach().numpy()]
+          self.val_preds[-1] += [i for i in features.cpu().detach().numpy()]
           if not self.stored_val_truths:
             self.val_truths += [i for i in y.numpy()]
         else:
-          self.val_preds[-1].append(pred.features.cpu().detach().numpy())
+          self.val_preds[-1].append(features.cpu().detach().numpy())
           self.val_truths[-1].append(y)
         if not self.stored_val_truths:
-          self.val_locs += [i for i in locs.numpy()]
-          indices = set([i for i in locs.numpy()[:, 0]])
-          self.val_nhits += [len(np.where(locs.numpy()[:, 0] == i)[0]) for i in indices]
+          if self.model_type != 1:
+            self.val_locs += [i for i in locs.numpy()]
+            indices = set([i for i in locs.numpy()[:, 0]])
+            self.val_nhits += [len(np.where(locs.numpy()[:, 0] == i)[0]) for i in indices]
         print(f"loss: {loss:>7f}  [{current:>5d}/{size}]")
   
     correct /= (1.*loader.dataset.pdsp_data.nevents)
@@ -298,7 +332,7 @@ def train(rank: int,
   if not args.noddp: ddp_setup(rank, world_size)
 
 
-  if args.type == 0:
+  if args.type in [0, 1]:
     import pdsp_dataset_mink as pdm
   else:
     import pdsp_dataset_mink_allhits as pdm
@@ -308,7 +342,9 @@ def train(rank: int,
       batch_size=args.batch_size,
       shuffle=False,
       num_workers=0,
-      collate_fn=pdm.minkowski_collate_fn,
+      collate_fn=(pdm.minkowski_collate_fn
+                  if args.type != 1
+                  else pdm.minkowski_collate_fn_all_planes),
       sampler=(None if args.noddp else DistributedSampler(train_dataset)),
   )
   if val_dataset is None:
@@ -318,18 +354,22 @@ def train(rank: int,
       val_dataset,
       batch_size=args.batch_size,
       shuffle=False,
-      collate_fn=pdm.minkowski_collate_fn,
+      collate_fn=(pdm.minkowski_collate_fn
+                  if args.type != 1
+                  else pdm.minkowski_collate_fn_all_planes),
     )
 
   trainer = Trainer(
       rank=rank,
       batch_size=args.batch_size,
+      schedule=args.schedule,
       weights=weights,
       flatten_out=True,
       noddp=args.noddp,
+      model_type=args.type,
   )
 
-  trainer.setup_trainers(model_type=args.type, lr=args.lr)
+  trainer.setup_trainers(lr=args.lr)
   trainer.setup_output()
   trainer.train(loader, epochs=args.epochs, validate_data=val_loader)
   if rank == 0:
@@ -356,32 +396,42 @@ if __name__ == '__main__':
                             '0 (Default) -- Event Classification\n'
                             '1 -- Beam/Cosmic Hits'))
   parser.add_argument('--noddp', action='store_true')
+  parser.add_argument('--schedule', action='store_true')
   args = parser.parse_args()
 
   if args.type == 0:
     import pdsp_dataset_mink as pdm
     import process_hits
+    from pdsp_dataset_mink import get_dataset
+
+    pdsp_data = process_hits.PDSPData()
+  elif args.type == 1:
+    import pdsp_dataset_mink as pdm
+    import process_hits
+    from pdsp_dataset_mink import get_dataset_allplanes as get_dataset
+
     pdsp_data = process_hits.PDSPData()
   else:
     import pdsp_dataset_mink_allhits as pdm
     import process_all_hits as process_hits
+    from pdsp_dataset_mink_allhits import get_dataset
     pdsp_data = process_hits.PDSPData(nfeatures=2)
 
 
   pdsp_data.load_h5_mp(args.trainsample, args.nload)
   pdsp_data.clean_events()
 
-  pdsp_dataset = pdm.get_dataset(pdsp_data)
+  pdsp_dataset = get_dataset(pdsp_data)
 
   if args.validatesample:
-    if args.type == 0:
+    if args.type in [0, 1]:
       validate_data = process_hits.PDSPData()
     else:
       validate_data = process_hits.PDSPData(nfeatures=2)
 
     validate_data.load_h5_mp(args.validatesample, args.nload)
     validate_data.clean_events()
-    val_dataset = pdm.get_dataset(validate_data)
+    val_dataset = get_dataset(validate_data)
   else:
     val_dataset = None
  

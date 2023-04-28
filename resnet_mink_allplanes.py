@@ -81,8 +81,8 @@ class Model(ME.MinkowskiNetwork):
     self.linear_mix1 = nn.Linear(128, 4)
     self.activation = nn.Softmax(dim=1)
 
-  def forward(self, x0, x1, x2):
-    y0 = self.stage1_plane0(x0)
+  def forward(self, x): #x0, x1, x2):
+    y0 = self.stage1_plane0(x[0])
     y0 = self.stage2_plane0(y0)
     y0 = self.stage3_plane0(y0)
     y0 = self.stage4_plane0(y0)
@@ -91,7 +91,7 @@ class Model(ME.MinkowskiNetwork):
     y0 = self.linear_plane0(y0)
     y0 = self.relu_plane0(y0)
 
-    y1 = self.stage1_plane1(x1)
+    y1 = self.stage1_plane1(x[1])
     y1 = self.stage2_plane1(y1)
     y1 = self.stage3_plane1(y1)
     y1 = self.stage4_plane1(y1)
@@ -100,7 +100,7 @@ class Model(ME.MinkowskiNetwork):
     y1 = self.linear_plane1(y1)
     y1 = self.relu_plane1(y1)
 
-    y2 = self.stage1_plane2(x2)
+    y2 = self.stage1_plane2(x[2])
     y2 = self.stage2_plane2(y2)
     y2 = self.stage3_plane2(y2)
     y2 = self.stage4_plane2(y2)

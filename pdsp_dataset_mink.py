@@ -60,6 +60,7 @@ def get_loader(pdsp_data, config):
     batch_size=config.batch_size,
   )
 
+
 class PDSPDatasetAllPlanes(Dataset):
   def __init__(self, pdsp_data):
     super().__init__()
@@ -81,6 +82,8 @@ class PDSPDatasetAllPlanes(Dataset):
       data[f'features_{j}'] = torch.from_numpy(features).to(torch.float32)
     return data
 
+def get_dataset_allplanes(pdsp_data):
+  return PDSPDatasetAllPlanes(pdsp_data)
 def minkowski_collate_fn_all_planes(list_data):
 
     coordinates_0 = []
