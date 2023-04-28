@@ -315,7 +315,7 @@ if __name__ == '__main__':
     validate_data = process_hits.PDSPData(linked=True)
     validate_data.load_h5(args.validatesample)
     validate_data.clean_events()
-    val_loader = pdm.get_loader(pdsp_data, args)
+    val_loader = pdm.get_loader(validate_data, args)
   else:
     #validate_data = None
     val_loader = None
