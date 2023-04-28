@@ -30,8 +30,8 @@ class PDSPData:
                (912 - (np.array(h5in[f'{k}/plane_{pid}_hits']['time'][:])[indices]- 500.)/6.025).flatten().astype(int),
                np.array(h5in[f'{k}/plane_{pid}_hits']['integral'][:])[indices].flatten()
            )
-    to_del = np.where((plane_data.time >= self.maxtime) |
-                      (plane_data.wire >= self.maxwires[pid]))
+    #to_del = np.where((plane_data.time >= self.maxtime) |
+    #                  (plane_data.wire >= self.maxwires[pid]))
 
     #print('Wire', pid, plane_data.wire)
     #print('Time', pid, plane_data.time)
@@ -392,41 +392,24 @@ class PDSPData:
 
     
 
-  '''
-  def make_plane(self, pid, pad2=False, use_width=False):
-    plane = np.zeros((self.maxtime, 480 if (pid == 2 and not pad2) else 800))
+
+  def make_plane(self, eventindex, pid=2, pad2=False):
+    plane = np.zeros((480 if (pid == 2 and not pad2) else 800, self.maxtime))
 
     if pid not in [0, 1, 2]:
       ##TODO -- throw exception
       return 0
-    elif pid == 0: data = self.plane0_data
-    elif pid == 1: data = self.plane1_data
-    elif pid == 2: data = self.plane2_data
 
 
-    bin_width=6.025
-    for d in data:
-      w = int(d['wire'])
-      if pid == 2:
-        if w > 479: continue
-        if pad2: w = w + (800 - 480)//2
-      elif w > 799: continue
-      t = 912 - int((d['time'] - 500)/bin_width)
-      if t >= self.maxtime: continue
-      i = d['integral']
+    wires = self.wires[pid][eventindex]
+    times = self.times[pid][eventindex]
 
-      if not use_width:
-        plane[t,w] += i
-      else:
-        rms = d['rms']
-        #Get the number of bins away -- 5 sigma
-        nbins = ceil(5*rms/bin_width)
-        for b in range(t - nbins, t + nbins + 1):
-          if b >= self.maxtime: continue
-          plane[b,w] += i*(bin_width/(rms*sqrt(2.*pi)))*exp(-.5*((t - b)*bin_width/rms)**2)
-  
+    for i in range(len(wires)):
+      plane[wires[i], times[i]] = self.integrals[pid][eventindex][i]
+
+
     return plane
-    '''
+
 
   def clean_events(self, check_nhits=True):
   ##Check this -- not working
@@ -457,13 +440,13 @@ class PDSPData:
       self.delete_event(i)
 
   def delete_event(self, i):
-    #del self.plane0_time[i]
-    #del self.plane0_wire[i]
-    #del self.plane0_integral[i]
+    del self.plane0_time[i]
+    del self.plane0_wire[i]
+    del self.plane0_integral[i]
 
-    #del self.plane1_time[i]
-    #del self.plane1_wire[i]
-    #del self.plane1_integral[i]
+    del self.plane1_time[i]
+    del self.plane1_wire[i]
+    del self.plane1_integral[i]
 
     del self.plane2_time[i]
     del self.plane2_wire[i]

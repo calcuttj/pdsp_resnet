@@ -82,25 +82,52 @@ class PDSPDatasetAllPlanes(Dataset):
     return data
 
 def minkowski_collate_fn_all_planes(list_data):
-    (coordinates_batch_0, features_batch_0,
-     coordinates_batch_1, features_batch_1,
-     coordinates_batch_2, features_batch_2,
-     labels_batch) = ME.utils.sparse_collate(
-        [d["coordinates_0"] for d in list_data],
-        [d["features_0"] for d in list_data],
-        [d["coordinates_1"] for d in list_data],
-        [d["features_1"] for d in list_data],
-        [d["coordinates_2"] for d in list_data],
-        [d["features_2"] for d in list_data],
-        [d["label"] for d in list_data],
+
+    coordinates_0 = []
+    coordinates_1 = []
+    coordinates_2 = []
+
+    features_0 = []
+    features_1 = []
+    features_2 = []
+
+    labels = []
+    for d in list_data:
+      coordinates_0.append(d['coordinates_0'])
+      coordinates_1.append(d['coordinates_1'])
+      coordinates_2.append(d['coordinates_2'])
+
+      features_0.append(d['features_0'])
+      features_1.append(d['features_1'])
+      features_2.append(d['features_2'])
+
+      labels.append(d['label'])
+
+    coordinates_0, features_0, labels = ME.utils.sparse_collate(
+        coordinates_0,
+        features_0,
+        labels,
         dtype=torch.float32,
     )
+
+    coordinates_1, features_1 = ME.utils.sparse_collate(
+        coordinates_1,
+        features_1,
+        dtype=torch.float32,
+    )
+
+    coordinates_2, features_2 = ME.utils.sparse_collate(
+        coordinates_2,
+        features_2,
+        dtype=torch.float32,
+    )
+
     return {
-        "coordinates_0": coordinates_batch_0,
-        "features_0": features_batch_0,
-        "coordinates_1": coordinates_batch_1,
-        "features_1": features_batch_1,
-        "coordinates_2": coordinates_batch_2,
-        "features_2": features_batch_2,
-        "labels": labels_batch,
+        "coordinates_0": coordinates_0,
+        "features_0": features_0,
+        "coordinates_1": coordinates_1,
+        "features_1": features_1,
+        "coordinates_2": coordinates_2,
+        "features_2": features_2,
+        "labels": labels,
     }
