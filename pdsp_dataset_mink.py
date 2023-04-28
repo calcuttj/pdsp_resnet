@@ -59,3 +59,46 @@ def get_loader(pdsp_data, config):
     collate_fn=minkowski_collate_fn,
     batch_size=config.batch_size,
   )
+
+class PDSPDatasetAllPlanes(Dataset):
+  def __init__(self, pdsp_data):
+    super().__init__()
+    self.pdsp_data = pdsp_data
+
+  def __len__(self):
+    return self.pdsp_data.nevents
+
+  def __getitem__(self, i: int) -> dict:
+
+    label = self.pdsp_data.topos[i]
+    data['label'] = torch.LongTensor([label])
+
+    for i in range(3):
+      locs, features = self.pdsp_data.get_plane(i, 2)
+      data[f'coordinates_{i}'] = torch.from_numpy(locs).to(torch.long)
+      data[f'features_{i}'] = torch.from_numpy(features).to(torch.float32)
+    return data
+
+def minkowski_collate_fn_all_planes(list_data):
+    (coordinates_batch_0, features_batch_0,
+     coordinates_batch_1, features_batch_1,
+     coordinates_batch_2, features_batch_2,
+     labels_batch) = ME.utils.sparse_collate(
+        [d["coordinates_0"] for d in list_data],
+        [d["features_0"] for d in list_data],
+        [d["coordinates_1"] for d in list_data],
+        [d["features_1"] for d in list_data],
+        [d["coordinates_2"] for d in list_data],
+        [d["features_2"] for d in list_data],
+        [d["label"] for d in list_data],
+        dtype=torch.float32,
+    )
+    return {
+        "coordinates_0": coordinates_batch_0,
+        "features_0": features_batch_0,
+        "coordinates_1": coordinates_batch_1,
+        "features_1": features_batch_1,
+        "coordinates_2": coordinates_batch_2,
+        "features_2": features_batch_2,
+        "labels": labels_batch,
+    }
